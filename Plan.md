@@ -86,19 +86,3 @@ Pick and validate one isolation strategy. Candidates to compare in Doc.md:
 3. Network is deny-by-default
 4. Only the project workspace is mounted
 5. Resolve symlinks before path validation
-
----
-
-## Open questions
-
-- Where does the Claude CLI process run — fully inside the guest, or host orchestrator + guest execution?
-- One long-lived VM vs. fresh VM per project?
-- Linux path: Colima everywhere, or native KVM/Lima?
-
----
-
-## Out of scope (v1)
-
-- Host kernel / hypervisor escape
-- Enterprise EDR integration
-- MCP server placement strategy
