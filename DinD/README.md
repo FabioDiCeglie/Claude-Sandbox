@@ -1,26 +1,64 @@
-# DinD — step 1
+# DinD sandbox
 
-Minimal FastAPI app with unit tests and Docker Compose.
+Isolated environment for running Claude CLI on a project — nested Docker (DinD) so the agent never sees host Docker, credentials, or paths outside `/workspace`.
 
-## Local run
+## How it works
 
-```bash
-uv sync --group dev
-uv run dind-app
+```
+Your Mac (host Docker)
+  └── claude-sandbox-shell          ← nested Docker daemon, only /workspace mounted
+        ├── claude-sandbox-cli      ← you + Claude CLI (+ docker client)
+        │     └── ./scripts/build-app.sh / run-tests.sh / run-app.sh
+        └── claude-sandbox-app      ← Python + uv (code COPY'd at build time)
+              ├── uv run pytest
+              └── uv run dind-app
 ```
 
-Try http://localhost:8080/greet/world
+**Three layers:**
 
-## Unit tests
+| Layer | Image / container | Role |
+|-------|-------------------|------|
+| **Shell** | `claude-sandbox-shell` | Isolation — inner Docker daemon, separate from your Mac |
+| **CLI** | `claude-sandbox-cli` | Claude runs here; edits files in `/workspace` |
+| **App** | `claude-sandbox-app` | Tests and server run here — project is `COPY`'d in at build |
+
+The CLI container only gets the inner Docker socket and `/workspace`. It does not get your home directory, SSH keys, or host Docker.
+
+Inside the CLI container, Claude uses fixed scripts only — see [CLAUDE.md](./CLAUDE.md):
+
+- `./scripts/build-app.sh` — rebuild app image after code changes
+- `./scripts/run-tests.sh` — pytest
+- `./scripts/run-app.sh` — FastAPI server
+
+## Setup
+
+Make scripts executable (once):
 
 ```bash
-uv run pytest
+chmod +x scripts/*.sh
 ```
 
-## Docker
+## Usage
+
+**Start** — boots the shell, builds the CLI image inside it, checks daemon isolation, drops you into `claude-sandbox-cli`:
 
 ```bash
-docker compose -f docker/docker-compose.yaml up --build
+./scripts/sandbox-start.sh
+```
+
+Then run `claude` when ready.
+
+**Stop:**
+
+```bash
+./scripts/sandbox-stop.sh
+```
+
+**Manual test flow** (inside cli, without Claude):
+
+```bash
+./scripts/build-app.sh
+./scripts/run-tests.sh
 ```
 
 ## Project layout
@@ -31,7 +69,15 @@ src/
 tests/
   unit/
     test_greet.py
+CLAUDE.md                 # agent rules (scripts only, no raw docker)
 docker/
-  Dockerfile
-  docker-compose.yaml
+  Dockerfile              # app image — COPY project + uv sync
+  Dockerfile.claude-cli   # cli image — Claude CLI + docker client
+  docker-compose.yaml     # shell + image build targets
+scripts/
+  sandbox-start.sh        # host — start shell, enter cli
+  sandbox-stop.sh         # host — stop shell
+  build-app.sh            # inside cli
+  run-tests.sh            # inside cli
+  run-app.sh              # inside cli
 ```
