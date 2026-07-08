@@ -1,0 +1,46 @@
+# CLAUDE.md
+
+You are running inside **claude-sandbox-cli** — an isolated sandbox container with a network proxy.
+
+## Environment
+
+- Project root: `/workspace` — edit files here
+- App code runs from the **built image** (`claude-sandbox-app`), not a live mount
+- You have the **inner** Docker socket mounted (not the host's)
+- Only `/workspace` is visible; host secrets (`~/.aws`, `~/.ssh`, etc.) are not mounted
+- All outbound network traffic is **forced through Squid** — only allowlisted domains
+  are reachable; everything else is blocked
+
+## Commands — no alternatives
+
+**Tests** — always and only:
+
+```bash
+./scripts/run-tests.sh
+```
+
+**App server** — always and only:
+
+```bash
+./scripts/run-app.sh
+```
+
+Do **not** run `pytest`, `uv`, `python`, or `dind-app` directly.
+Do **not** use `docker run` or `docker build` yourself — use the scripts above.
+
+## Workflow
+
+1. Edit files under `/workspace`
+2. `./scripts/run-tests.sh` — fix failures, repeat until green
+3. `./scripts/run-app.sh` — only when the user asks to run the server
+4. Commit only when the user asks
+
+The first `run-tests.sh` call builds the app image; subsequent runs use Docker's layer
+cache so they are fast unless dependencies changed.
+
+## Rules
+
+- Tests = `./scripts/run-tests.sh` only. Nothing else.
+- App server = `./scripts/run-app.sh` only. Nothing else.
+- Do not access paths outside `/workspace`
+- Do not attempt to bypass the proxy or modify network settings

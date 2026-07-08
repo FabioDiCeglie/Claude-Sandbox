@@ -1,0 +1,16 @@
+services:
+  # Nested Docker daemon — inner daemon, workspace mounted at /workspace
+  # All proxy/CLI/app containers run inside this via sandbox-start.sh
+  shell:
+    profiles: ["sandbox"]
+    container_name: claude-sandbox-proxy-shell
+    image: docker:27-dind
+    privileged: true
+    environment:
+      DOCKER_TLS_CERTDIR: ""
+    volumes:
+      - ..:/workspace:rw
+      - shell-storage:/var/lib/docker
+
+volumes:
+  shell-storage:
