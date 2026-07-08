@@ -23,26 +23,21 @@ You are running inside **claude-sandbox-cli** — an isolated sandbox container.
 ./scripts/run-app.sh
 ```
 
-**Rebuild app image** — after any code or dependency change:
-
-```bash
-./scripts/build-app.sh
-```
-
 Do **not** run `pytest`, `uv`, `python`, or `dind-app` directly.
 Do **not** use `docker run` or `docker build` yourself — use the scripts above.
 
 ## Workflow
 
 1. Edit files under `/workspace`
-2. `./scripts/build-app.sh` — copies changes into the app image
-3. `./scripts/run-tests.sh` — fix failures, repeat until green
-4. `./scripts/run-app.sh` — only when the user asks to run the server
-5. Commit only when the user asks
+2. `./scripts/run-tests.sh` — fix failures, repeat until green
+3. `./scripts/run-app.sh` — only when the user asks to run the server
+4. Commit only when the user asks
+
+The first `run-tests.sh` call builds the app image; subsequent runs use Docker's layer
+cache so they are fast unless dependencies changed.
 
 ## Rules
 
 - Tests = `./scripts/run-tests.sh` only. Nothing else.
 - App server = `./scripts/run-app.sh` only. Nothing else.
-- Always `./scripts/build-app.sh` before tests or app after editing files
 - Do not access paths outside `/workspace`
