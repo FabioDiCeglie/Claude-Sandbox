@@ -10,6 +10,8 @@ You are running inside **claude-sandbox-cli** — an isolated sandbox container 
 - Only `/workspace` is visible; host secrets (`~/.aws`, `~/.ssh`, etc.) are not mounted
 - All outbound network traffic is **forced through Squid** — only allowlisted domains
   are reachable; everything else is blocked
+- All Docker API calls go through a **socket proxy** — `docker run --privileged`,
+  dangerous capabilities, and host network/pid modes are blocked
 
 ## Commands — no alternatives
 

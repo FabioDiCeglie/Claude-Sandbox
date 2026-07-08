@@ -4,14 +4,17 @@
 # Network topology inside the inner daemon:
 #
 #   proxy-egress  (normal bridge — internet-accessible)
-#     └── sandbox-proxy
+#     └── sandbox-proxy (Squid)
 #
 #   sandbox-net   (--internal — no direct internet)
-#     ├── sandbox-proxy   (also here, accepts requests from CLI/app)
+#     ├── sandbox-proxy  (Squid HTTP egress filter)
+#     ├── socket-proxy   (Docker API filter — blocks --privileged etc.)
 #     └── claude-sandbox-cli
 #         └── claude-sandbox-app (spawned by scripts inside cli)
 #
-# Claude CLI and the app can only reach the internet via Squid.
+# Two proxies, two layers:
+#   Squid       → controls which websites/APIs are reachable
+#   socket-proxy → controls which Docker operations are allowed
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -20,6 +23,8 @@ SHELL_NAME="claude-sandbox-proxy-shell"
 MAX_WAIT_SECONDS="${MAX_WAIT_SECONDS:-90}"
 PROXY_NAME="sandbox-proxy"
 PROXY_PORT="3128"
+SOCKET_PROXY_NAME="socket-proxy"
+SOCKET_PROXY_PORT="2375"
 
 cd "${ROOT}"
 
@@ -117,7 +122,28 @@ until docker exec "${SHELL_NAME}" \
 done
 echo "  ✅  Squid ready on :${PROXY_PORT}"
 
-# ── 7. Build CLI image inside the inner daemon ────────────────────────────────
+# ── 7. Build + start socket proxy ────────────────────────────────────────────
+echo
+echo "▶ Building socket-proxy (Docker API filter) inside shell"
+docker exec "${SHELL_NAME}" docker build \
+  -t socket-proxy:latest \
+  -f /workspace/docker/Dockerfile.socket-proxy \
+  /workspace/docker
+echo "  ✅  socket-proxy:latest"
+
+echo
+echo "▶ Starting ${SOCKET_PROXY_NAME}"
+docker exec "${SHELL_NAME}" docker rm -f "${SOCKET_PROXY_NAME}" >/dev/null 2>&1 || true
+
+docker exec "${SHELL_NAME}" docker run -d \
+  --name "${SOCKET_PROXY_NAME}" \
+  --network sandbox-net \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  --restart unless-stopped \
+  socket-proxy:latest
+echo "  ✅  ${SOCKET_PROXY_NAME} running on sandbox-net:${SOCKET_PROXY_PORT}"
+
+# ── 8. Build CLI image inside the inner daemon ────────────────────────────────
 echo
 echo "▶ Building claude-sandbox-cli inside shell"
 docker exec "${SHELL_NAME}" docker build \
@@ -126,13 +152,14 @@ docker exec "${SHELL_NAME}" docker build \
   /workspace/docker
 echo "  ✅  claude-sandbox-cli:latest"
 
-# ── 8. Summary + drop into CLI ───────────────────────────────────────────────
+# ── 9. Summary + drop into CLI ───────────────────────────────────────────────
 echo
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo "  Sandbox ready — entering CLI"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo
-echo "  All outbound traffic goes through Squid."
+echo "  HTTP/HTTPS  → Squid (domain allowlist)"
+echo "  Docker API  → socket-proxy (blocks --privileged, dangerous caps)"
 echo "  Run \`claude\` when ready. Stop with: ./scripts/sandbox-stop.sh"
 echo
 
@@ -140,8 +167,8 @@ exec docker exec -it "${SHELL_NAME}" docker run --rm -it \
   --network sandbox-net \
   --env HTTP_PROXY="http://${PROXY_NAME}:${PROXY_PORT}" \
   --env HTTPS_PROXY="http://${PROXY_NAME}:${PROXY_PORT}" \
-  --env NO_PROXY="localhost,127.0.0.1" \
-  -v /var/run/docker.sock:/var/run/docker.sock \
+  --env NO_PROXY="localhost,127.0.0.1,${SOCKET_PROXY_NAME}" \
+  --env DOCKER_HOST="tcp://${SOCKET_PROXY_NAME}:${SOCKET_PROXY_PORT}" \
   -v /workspace:/workspace \
   -w /workspace \
   claude-sandbox-cli:latest \

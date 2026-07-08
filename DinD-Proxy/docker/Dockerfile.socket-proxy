@@ -1,0 +1,7 @@
+FROM python:3.11-alpine
+
+COPY socket-proxy/proxy.py /proxy.py
+
+EXPOSE 2375
+
+CMD ["python3", "-u", "/proxy.py"]

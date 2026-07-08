@@ -18,21 +18,30 @@ Your Mac (host Docker)
                           └── claude-sandbox-app   ← Python + uv
 ```
 
-**Four layers:**
+**Five layers:**
 
 | Layer | Container | Role |
 |-------|-----------|------|
 | **Shell** | `claude-sandbox-proxy-shell` | Inner Docker daemon (DinD) |
-| **Proxy** | `sandbox-proxy` | Squid — egress filter + audit log |
-| **CLI** | `claude-sandbox-cli` | Claude CLI; all outbound via proxy |
-| **App** | `claude-sandbox-app` | Tests and server; all outbound via proxy |
+| **Squid** | `sandbox-proxy` | HTTP egress filter — domain allowlist + audit log |
+| **Socket proxy** | `socket-proxy` | Docker API filter — blocks `--privileged`, dangerous caps, host network/pid |
+| **CLI** | `claude-sandbox-cli` | Claude CLI; all outbound via proxies |
+| **App** | `claude-sandbox-app` | Tests and server; all outbound via proxies |
 
-### What the proxy enforces
+### What the proxies enforce
 
-- **Allowlist** — only the domains in `docker/squid/squid.conf` are reachable: PyPI, Anthropic API, Docker Hub, GHCR, npm, Debian apt, GitHub, uv/Astral.
-- **Deny-all default** — any domain not on the list returns `403 Forbidden`.
-- **Audit log** — every request (allowed or denied) is written to `/var/log/squid/access.log` inside `sandbox-proxy`.
-- **Internal network** — `sandbox-net` is created with `--internal`, so the kernel itself prevents CLI/app containers from bypassing the proxy at the routing level.
+**Squid (HTTP egress — `sandbox-proxy`)**
+- Domain allowlist — only PyPI, Anthropic API, Docker Hub, GHCR, npm, Debian apt, GitHub, uv/Astral pass.
+- Deny-all default — any unlisted domain returns `403 Forbidden`.
+- Audit log — every request written to `/var/log/squid/access.log`.
+- Internal network — `sandbox-net` is `--internal`; kernel blocks direct internet at routing level.
+
+**Socket proxy (Docker API — `socket-proxy`)**
+- Blocks `docker run --privileged`
+- Blocks dangerous capabilities (`SYS_ADMIN`, `NET_ADMIN`, `SYS_PTRACE`, …)
+- Blocks `--network host`, `--pid host`, `--ipc host`
+- Logs every allowed/blocked container-create call to stdout
+- CLI uses `DOCKER_HOST=tcp://socket-proxy:2375` — never touches the real socket directly
 
 ### Known limitation
 
@@ -91,9 +100,12 @@ CLAUDE.md                      # agent rules
 docker/
   Dockerfile                   # app image — Python + uv
   Dockerfile.claude-cli        # CLI image — Claude CLI + docker client
-  Dockerfile.squid             # proxy image — Squid on Alpine
+  Dockerfile.squid             # Squid image — HTTP egress filter
+  Dockerfile.socket-proxy      # socket proxy image — Docker API filter
   squid/
     squid.conf                 # ACL allowlist + deny-all default
+  socket-proxy/
+    proxy.py                   # Python proxy — inspects /containers/create
   docker-compose.yaml          # host: shell container only
 scripts/
   sandbox-start.sh             # host: boot everything, drop into CLI
