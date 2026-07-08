@@ -1,10 +1,5 @@
 FROM python:3.11-slim
 
-# Declare early so every RUN below (apt-get, uv sync) routes through Squid
-# when --build-arg HTTP_PROXY=http://sandbox-proxy:3128 is passed
-ARG HTTP_PROXY
-ARG HTTPS_PROXY
-
 RUN apt-get update \
     && apt-get install -y --no-install-recommends bash git \
     && rm -rf /var/lib/apt/lists/*
