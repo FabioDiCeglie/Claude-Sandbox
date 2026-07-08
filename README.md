@@ -8,7 +8,24 @@ Claude CLI has shell, filesystem, and network access on your machine. A compromi
 
 ### DinD (Docker-in-Docker)
 
-Claude runs in nested containers instead of on your host — so a compromised agent can't reach host Docker, SSH keys, or paths outside `/workspace`. Three layers: shell (inner Docker daemon) → CLI (Claude + workspace) → app (tests/server).
+Claude runs in nested containers — not on your host.
+
+```
+┌────── Host Docker (Your Laptop) ──────┐
+│  ┌── claude-sandbox-shell-docker ────┐ │
+│  │                                   │ │
+│  │  ┌ claude-sandbox-cli ──────────┐ │ │
+│  │  │  Claude edits here           │ │ │
+│  │  └───────────┬──────────────────┘ │ │
+│  │              │ scripts            │ │
+│  │  ┌ claude-sandbox-app ──────────┐ │ │
+│  │  │  ┌ docker-tests · docker-app ┐│ │ │
+│  │  │  │  same container           ││ │ │
+│  │  │  └───────────────────────────┘│ │ │
+│  │  └──────────────────────────────┘ │ │
+│  └───────────────────────────────────┘ │
+└────────────────────────────────────────┘
+```
 
 Setup: [`DinD/README.md`](./DinD/README.md)
 
