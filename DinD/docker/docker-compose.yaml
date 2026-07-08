@@ -1,20 +1,6 @@
 services:
-  # Python + uv — built for sandbox; on host use --profile app to run the server
-  app:
-    profiles: ["app", "sandbox"]
-    container_name: claude-sandbox-app
-    build:
-      context: ..
-      dockerfile: docker/Dockerfile
-    image: claude-sandbox-app:latest
-    working_dir: /workspace
-    volumes:
-      - ..:/workspace
-    ports:
-      - "8080:8080"
-    command: ["uv", "run", "dind-app"]
-
-  # Sandbox shell — nested Docker daemon, workspace mounted at /workspace
+  # Nested Docker daemon — inner daemon, workspace mounted at /workspace
+  # All CLI/app containers are built and run inside this via sandbox-start.sh
   shell:
     profiles: ["sandbox"]
     container_name: claude-sandbox-shell
@@ -25,14 +11,6 @@ services:
     volumes:
       - ..:/workspace:rw
       - shell-storage:/var/lib/docker
-
-  # Claude CLI — thin container; workspace + inner docker socket at runtime
-  claude-cli:
-    profiles: ["sandbox"]
-    build:
-      context: ..
-      dockerfile: docker/Dockerfile.claude-cli
-    image: claude-sandbox-cli:latest
 
 volumes:
   shell-storage:
