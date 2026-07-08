@@ -32,10 +32,10 @@ echo "  ✅  inner daemon ready"
 
 echo
 echo "▶ Building claude-sandbox-cli inside shell"
-docker exec -e DOCKER_BUILDKIT=1 "${SHELL_NAME}" docker build --progress=quiet \
+docker exec "${SHELL_NAME}" docker build -q \
   -t claude-sandbox-cli:latest \
   -f /workspace/docker/Dockerfile.claude-cli \
-  /workspace/docker
+  /workspace/docker >/dev/null 2>&1
 echo "  ✅  claude-sandbox-cli:latest"
 
 echo

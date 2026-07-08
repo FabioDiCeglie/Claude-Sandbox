@@ -5,10 +5,9 @@ set -euo pipefail
 PROXY_HOST="${HTTP_PROXY:-http://sandbox-proxy:3128}"
 
 echo "Building app image..."
-DOCKER_BUILDKIT=1 docker build --progress=quiet \
-  -t claude-sandbox-app:latest \
+docker build -q -t claude-sandbox-app:latest \
   -f /workspace/docker/Dockerfile \
-  /workspace
+  /workspace >/dev/null 2>&1
 echo "Build complete."
 
 docker run --rm \

@@ -83,10 +83,10 @@ echo "  ✅  sandbox-net (internal — no direct internet)"
 # ── 4. Build proxy image inside the inner daemon ──────────────────────────────
 echo
 echo "▶ Building sandbox-proxy (Squid) inside shell"
-docker exec -e DOCKER_BUILDKIT=1 "${SHELL_NAME}" docker build --progress=quiet \
+docker exec "${SHELL_NAME}" docker build -q \
   -t sandbox-proxy:latest \
   -f /workspace/docker/Dockerfile.squid \
-  /workspace/docker
+  /workspace/docker >/dev/null 2>&1
 echo "  ✅  sandbox-proxy:latest"
 
 # ── 5. Start the proxy container ──────────────────────────────────────────────
@@ -125,10 +125,10 @@ echo "  ✅  Squid ready on :${PROXY_PORT}"
 # ── 7. Build + start socket proxy ────────────────────────────────────────────
 echo
 echo "▶ Building socket-proxy (Docker API filter) inside shell"
-docker exec -e DOCKER_BUILDKIT=1 "${SHELL_NAME}" docker build --progress=quiet \
+docker exec "${SHELL_NAME}" docker build -q \
   -t socket-proxy:latest \
   -f /workspace/docker/Dockerfile.socket-proxy \
-  /workspace/docker
+  /workspace/docker >/dev/null 2>&1
 echo "  ✅  socket-proxy:latest"
 
 echo
@@ -146,10 +146,10 @@ echo "  ✅  ${SOCKET_PROXY_NAME} running on sandbox-net:${SOCKET_PROXY_PORT}"
 # ── 8. Build CLI image inside the inner daemon ────────────────────────────────
 echo
 echo "▶ Building claude-sandbox-cli inside shell"
-docker exec -e DOCKER_BUILDKIT=1 "${SHELL_NAME}" docker build --progress=quiet \
+docker exec "${SHELL_NAME}" docker build -q \
   -t claude-sandbox-cli:latest \
   -f /workspace/docker/Dockerfile.claude-cli \
-  /workspace/docker
+  /workspace/docker >/dev/null 2>&1
 echo "  ✅  claude-sandbox-cli:latest"
 
 # ── 9. Summary + drop into CLI ───────────────────────────────────────────────
