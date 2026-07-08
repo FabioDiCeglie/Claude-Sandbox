@@ -80,7 +80,7 @@ class BufSock:
         return out
 
     def read_chunked(self) -> bytes:
-        """Read a complete HTTP chunked body; return raw wire bytes."""
+        """Read a complete HTTP chunked body; return raw wire bytes (for requests)."""
         raw = b""
         while True:
             size_line = self.read_until(b"\r\n")
@@ -95,6 +95,21 @@ class BufSock:
             raw += self.read_exactly(size)
             raw += self.read_exactly(2)   # CRLF after chunk
         return raw
+
+    def stream_chunked_to(self, dst: "BufSock"):
+        """Stream chunked response body to dst as chunks arrive (no buffering)."""
+        while True:
+            size_line = self.read_until(b"\r\n")
+            if not size_line:
+                break
+            dst.sendall(size_line)
+            size = int(size_line.strip().split(b";")[0], 16)
+            if size == 0:
+                trailer = self.read_until(b"\r\n")
+                dst.sendall(trailer or b"")
+                break
+            dst.sendall(self.read_exactly(size))
+            dst.sendall(self.read_exactly(2))
 
     # ── writes / misc ──────────────────────────────────────────────────────
 
@@ -242,7 +257,7 @@ def handle(client_raw: socket.socket):
                         remaining -= len(chunk)
 
                 elif b"chunked" in resp_te.lower():
-                    client.sendall(ds.read_chunked())
+                    ds.stream_chunked_to(client)
 
                 else:
                     # No Content-Length and not chunked → streaming response

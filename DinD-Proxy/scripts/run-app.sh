@@ -4,9 +4,11 @@ set -euo pipefail
 
 PROXY_HOST="${HTTP_PROXY:-http://sandbox-proxy:3128}"
 
-docker build -t claude-sandbox-app:latest \
+echo "Building app image..."
+docker build -q -t claude-sandbox-app:latest \
   -f /workspace/docker/Dockerfile \
-  /workspace
+  /workspace > /dev/null
+echo "Build complete."
 
 docker run --rm \
   --network sandbox-net \
