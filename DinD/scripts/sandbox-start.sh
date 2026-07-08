@@ -66,10 +66,32 @@ echo "  \`docker run\` goes through the shell's daemon — not host Docker."
 echo "  Only /workspace is visible. Run \`claude\` when you're ready."
 echo
 
+echo "▶ Locking .env files in workspace"
+# Find every .env-style file and make it unreadable.
+# This runs as root inside the shell container so it reliably sets the bits
+# before the CLI container (which runs as nobody) mounts the same path.
+docker exec "${SHELL_NAME}" sh -c '
+  find /workspace -type f \( \
+    -name ".env" -o -name ".env.*" -o -name "*.env" \
+    -o -name "secrets.*" -o -name "credentials.*" \
+  \) -print0 \
+  | xargs -0 chmod 000
+'
+locked=$(docker exec "${SHELL_NAME}" sh -c '
+  find /workspace -type f \( \
+    -name ".env" -o -name ".env.*" -o -name "*.env" \
+    -o -name "secrets.*" -o -name "credentials.*" \
+  \) | wc -l | tr -d " "
+')
+echo "  ✅  ${locked} secret file(s) locked (chmod 000)"
+echo
+
 echo "▶ Entering claude-sandbox-cli"
 echo
 
+# Run as 'nobody' (uid 65534) so chmod 000 locks are effective.
 exec docker exec -it "${SHELL_NAME}" docker run --rm -it \
+  --user nobody \
   -v /var/run/docker.sock:/var/run/docker.sock \
   -v /workspace:/workspace \
   -w /workspace \

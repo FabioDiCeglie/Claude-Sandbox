@@ -163,7 +163,26 @@ echo "  Docker API  → socket-proxy (blocks --privileged, dangerous caps)"
 echo "  Run \`claude\` when ready. Stop with: ./scripts/sandbox-stop.sh"
 echo
 
+echo "▶ Locking .env files in workspace"
+docker exec "${SHELL_NAME}" sh -c '
+  find /workspace -type f \( \
+    -name ".env" -o -name ".env.*" -o -name "*.env" \
+    -o -name "secrets.*" -o -name "credentials.*" \
+  \) -print0 \
+  | xargs -0 chmod 000
+'
+locked=$(docker exec "${SHELL_NAME}" sh -c '
+  find /workspace -type f \( \
+    -name ".env" -o -name ".env.*" -o -name "*.env" \
+    -o -name "secrets.*" -o -name "credentials.*" \
+  \) | wc -l | tr -d " "
+')
+echo "  ✅  ${locked} secret file(s) locked (chmod 000)"
+echo
+
+# Run as 'nobody' (uid 65534) so chmod 000 locks are effective.
 exec docker exec -it "${SHELL_NAME}" docker run --rm -it \
+  --user nobody \
   --network sandbox-net \
   --env HTTP_PROXY="http://${PROXY_NAME}:${PROXY_PORT}" \
   --env HTTPS_PROXY="http://${PROXY_NAME}:${PROXY_PORT}" \

@@ -16,4 +16,4 @@ docker run --rm \
   --env HTTPS_PROXY="${PROXY_HOST}" \
   --env NO_PROXY="localhost,127.0.0.1" \
   claude-sandbox-app:latest \
-  uv run --no-sync pytest
+  .venv/bin/pytest

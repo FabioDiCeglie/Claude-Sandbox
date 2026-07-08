@@ -46,3 +46,13 @@ cache so they are fast unless dependencies changed.
 - App server = `./scripts/run-app.sh` only. Nothing else.
 - Do not access paths outside `/workspace`
 - Do not attempt to bypass the proxy or modify network settings
+
+## Secrets — hard rules
+
+- **Never read, print, log, or pass to any tool** the contents of `.env`, `.env.*`,
+  `*.env`, `secrets.*`, `credentials.*`, or any file that appears to contain API keys,
+  tokens, passwords, or private keys
+- If you need to know which variables exist, read only `.env.example` (no real values)
+- Never embed secret values in code, comments, commit messages, or test output
+- If a task genuinely requires a secret value, stop and ask the user to inject it as an
+  environment variable at runtime — do not read it from the file yourself
