@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """
-Docker socket proxy — blocks dangerous container-creation flags.
+Docker socket proxy — blocks --privileged and dangerous container flags.
 
-Listens on TCP :2375, proxies to /var/run/docker.sock.
-Handles HTTP/1.1 keep-alive properly: inspects EVERY request on a
-connection, not just the first one.
+Each TCP connection carries exactly one request/response pair. We force
+Connection: close so the daemon closes after each response, which means
+we never need to parse Content-Length, chunked encoding, or keep-alive
+state. Just pipe daemon→client until the daemon closes; done.
 """
 import json
 import re
@@ -43,122 +44,9 @@ def check_create(body_bytes: bytes):
     return None
 
 
-# ── buffered socket ───────────────────────────────────────────────────────────
-
-class BufSock:
-    """Socket with a read buffer so we can do framed HTTP reads."""
-
-    def __init__(self, sock: socket.socket):
-        self._s   = sock
-        self._buf = b""
-
-    # ── reads ──────────────────────────────────────────────────────────────
-
-    def read_until(self, delim: bytes, limit: int = 131072):
-        while delim not in self._buf:
-            chunk = self._s.recv(4096)
-            if not chunk:
-                return None
-            self._buf += chunk
-            if len(self._buf) > limit:
-                break
-        idx = self._buf.find(delim)
-        if idx == -1:
-            out, self._buf = self._buf, b""
-            return out
-        end = idx + len(delim)
-        out, self._buf = self._buf[:end], self._buf[end:]
-        return out
-
-    def read_exactly(self, n: int) -> bytes:
-        while len(self._buf) < n:
-            chunk = self._s.recv(min(65536, n - len(self._buf)))
-            if not chunk:
-                break
-            self._buf += chunk
-        out, self._buf = self._buf[:n], self._buf[n:]
-        return out
-
-    def read_chunked(self) -> bytes:
-        """Read a complete HTTP chunked body; return raw wire bytes (for requests)."""
-        raw = b""
-        while True:
-            size_line = self.read_until(b"\r\n")
-            if not size_line:
-                break
-            raw += size_line
-            size = int(size_line.strip().split(b";")[0], 16)
-            if size == 0:
-                trailer = self.read_until(b"\r\n")
-                raw += trailer or b""
-                break
-            raw += self.read_exactly(size)
-            raw += self.read_exactly(2)   # CRLF after chunk
-        return raw
-
-    def stream_chunked_to(self, dst: "BufSock"):
-        """Stream chunked response body to dst as chunks arrive (no buffering)."""
-        while True:
-            size_line = self.read_until(b"\r\n")
-            if not size_line:
-                break
-            dst.sendall(size_line)
-            size = int(size_line.strip().split(b";")[0], 16)
-            if size == 0:
-                trailer = self.read_until(b"\r\n")
-                dst.sendall(trailer or b"")
-                break
-            dst.sendall(self.read_exactly(size))
-            dst.sendall(self.read_exactly(2))
-
-    # ── writes / misc ──────────────────────────────────────────────────────
-
-    def sendall(self, data: bytes):
-        self._s.sendall(data)
-
-    def flush_buf(self) -> bytes:
-        """Return and clear any internally buffered data."""
-        out, self._buf = self._buf, b""
-        return out
-
-    def raw(self) -> socket.socket:
-        return self._s
-
-    def close(self):
-        try:
-            self._s.close()
-        except Exception:
-            pass
-
-
 # ── helpers ───────────────────────────────────────────────────────────────────
 
-def _get_header(raw: bytes, name: str) -> bytes:
-    m = re.search(rb"(?i)" + name.encode() + rb":\s*([^\r\n]+)", raw)
-    return m.group(1).strip() if m else b""
-
-
-def _pipe(src: socket.socket, dst: socket.socket, done: threading.Event):
-    try:
-        while not done.is_set():
-            data = src.recv(65536)
-            if not data:
-                break
-            dst.sendall(data)
-    except Exception:
-        pass
-    finally:
-        done.set()
-
-
-def _pipe_both(a: socket.socket, b: socket.socket):
-    done = threading.Event()
-    threading.Thread(target=_pipe, args=(a, b, done), daemon=True).start()
-    threading.Thread(target=_pipe, args=(b, a, done), daemon=True).start()
-    done.wait()
-
-
-def _deny(sock: BufSock, reason: str):
+def _deny(sock: socket.socket, reason: str):
     msg  = json.dumps({"message": reason})
     resp = (
         f"HTTP/1.1 403 Forbidden\r\n"
@@ -173,114 +61,96 @@ def _deny(sock: BufSock, reason: str):
         pass
 
 
-# ── per-connection handler ────────────────────────────────────────────────────
-
-def handle(client_raw: socket.socket):
-    client = BufSock(client_raw)
-
-    ds_raw = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-    try:
-        ds_raw.connect(DOCKER_SOCKET)
-    except Exception as exc:
-        _deny(client, f"cannot reach Docker daemon: {exc}")
-        client.close()
-        return
-    ds = BufSock(ds_raw)
-
+def _pipe(src: socket.socket, dst: socket.socket):
+    """Copy src→dst until src closes or an error occurs."""
     try:
         while True:
-            # ── request headers ───────────────────────────────────────────
-            req_head = client.read_until(b"\r\n\r\n")
-            if not req_head:
+            data = src.recv(65536)
+            if not data:
                 break
+            dst.sendall(data)
+    except Exception:
+        pass
 
-            first_line = req_head.split(b"\r\n")[0].decode("utf-8", errors="replace")
-            parts  = first_line.split(" ")
-            method = parts[0] if parts else ""
-            path   = parts[1] if len(parts) > 1 else ""
 
-            is_create = method == "POST" and bool(re.search(r"/containers/create", path))
+# ── per-connection handler ────────────────────────────────────────────────────
 
-            # ── request body ──────────────────────────────────────────────
-            req_body = b""
-            cl = _get_header(req_head, "Content-Length")
-            te = _get_header(req_head, "Transfer-Encoding")
-
-            if cl:
-                req_body = client.read_exactly(int(cl))
-            elif b"chunked" in te.lower():
-                req_body = client.read_chunked()
-
-            # ── policy check ──────────────────────────────────────────────
-            if is_create:
-                reason = check_create(req_body)
-                if reason:
-                    print(f"[BLOCKED] {path} — {reason}", flush=True)
-                    _deny(client, reason)
-                    break
-                print(f"[ALLOWED] {path}", flush=True)
-
-            # ── forward request to Docker ─────────────────────────────────
-            ds.sendall(req_head + req_body)
-
-            # ── response headers ──────────────────────────────────────────
-            resp_head = ds.read_until(b"\r\n\r\n")
-            if not resp_head:
-                break
-
-            first_resp   = resp_head.split(b"\r\n")[0].decode("utf-8", errors="replace")
-            status_parts = first_resp.split(" ")
-            status_code  = int(status_parts[1]) if len(status_parts) > 1 else 0
-
-            client.sendall(resp_head)
-
-            # ── response body ─────────────────────────────────────────────
-            if status_code == 101:
-                # Protocol upgrade (docker exec -it, attach) → raw pipe
-                leftover = ds.flush_buf()
-                if leftover:
-                    client.sendall(leftover)
-                _pipe_both(client.raw(), ds.raw())
+def handle(client: socket.socket):
+    ds = None
+    try:
+        # ── read request headers ──────────────────────────────────────────
+        buf = b""
+        while b"\r\n\r\n" not in buf:
+            chunk = client.recv(4096)
+            if not chunk:
+                return
+            buf += chunk
+            if len(buf) > 1 << 20:   # 1 MB sanity cap
                 return
 
-            if status_code not in (204, 304) and method != "HEAD":
-                resp_cl = _get_header(resp_head, "Content-Length")
-                resp_te = _get_header(resp_head, "Transfer-Encoding")
+        sep      = buf.index(b"\r\n\r\n") + 4
+        req_head = buf[:sep]
+        leftover = buf[sep:]
 
-                if resp_cl:
-                    remaining = int(resp_cl)
-                    while remaining > 0:
-                        chunk = ds.read_exactly(min(65536, remaining))
-                        if not chunk:
-                            break
-                        client.sendall(chunk)
-                        remaining -= len(chunk)
+        first_line = req_head.split(b"\r\n")[0].decode("utf-8", errors="replace")
+        parts  = first_line.split()
+        method = parts[0] if parts else ""
+        path   = parts[1] if len(parts) > 1 else ""
 
-                elif b"chunked" in resp_te.lower():
-                    ds.stream_chunked_to(client)
+        is_create = method == "POST" and "/containers/create" in path
 
-                else:
-                    # No Content-Length and not chunked → streaming response
-                    # (build output, logs, wait, raw-stream attach, …)
-                    leftover = ds.flush_buf()
-                    if leftover:
-                        client.sendall(leftover)
-                    _pipe_both(client.raw(), ds.raw())
-                    return
+        # ── read request body (needed for policy check on create) ─────────
+        req_body = leftover
+        cl_m = re.search(rb"(?i)content-length:\s*(\d+)", req_head)
+        if cl_m:
+            needed = int(cl_m.group(1)) - len(leftover)
+            while needed > 0:
+                chunk = client.recv(min(65536, needed))
+                if not chunk:
+                    break
+                req_body += chunk
+                needed -= len(chunk)
 
-            # ── keep-alive decision ───────────────────────────────────────
-            resp_conn = _get_header(resp_head, "Connection").lower()
-            req_conn  = _get_header(req_head,  "Connection").lower()
-            if b"close" in resp_conn or b"close" in req_conn:
-                break
-            if first_line.upper().endswith("HTTP/1.0") and b"keep-alive" not in req_conn:
-                break
+        # ── policy check ──────────────────────────────────────────────────
+        if is_create:
+            reason = check_create(req_body)
+            if reason:
+                print(f"[BLOCKED] {path} — {reason}", flush=True)
+                _deny(client, reason)
+                return
+            print(f"[ALLOWED] {path}", flush=True)
+
+        # ── rewrite Connection header → close ─────────────────────────────
+        # Forces the daemon to close after this response, so we never need
+        # to parse Content-Length, chunked encoding, or keep-alive state.
+        req_head = re.sub(rb"(?im)^connection:[ \t]*[^\r\n]*\r\n", b"", req_head)
+        req_head = req_head[:-2] + b"connection: close\r\n\r\n"
+
+        # ── connect to Docker and forward request ─────────────────────────
+        ds = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        ds.connect(DOCKER_SOCKET)
+        ds.sendall(req_head + req_body)
+
+        # ── stream response back to client ────────────────────────────────
+        # client→daemon in a background thread (needed for 101 upgrades /
+        # interactive exec); daemon→client in this thread — blocks until
+        # the daemon closes the connection (response complete, or container
+        # exited for streaming attach/logs).
+        threading.Thread(target=_pipe, args=(client, ds), daemon=True).start()
+        _pipe(ds, client)
 
     except Exception:
         pass
     finally:
-        ds.close()
-        client.close()
+        if ds:
+            try:
+                ds.close()
+            except Exception:
+                pass
+        try:
+            client.close()
+        except Exception:
+            pass
 
 
 # ── main ──────────────────────────────────────────────────────────────────────
