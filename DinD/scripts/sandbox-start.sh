@@ -30,6 +30,10 @@ until docker exec "${SHELL_NAME}" docker info >/dev/null 2>&1; do
 done
 echo "  ✅  inner daemon ready"
 
+# Allow the CLI container (running as nobody) to reach the inner Docker socket.
+# Without this, nobody gets "permission denied" on the Unix socket file.
+docker exec "${SHELL_NAME}" chmod 666 /var/run/docker.sock
+
 echo
 echo "▶ Building claude-sandbox-cli inside shell"
 docker exec "${SHELL_NAME}" docker build -q \
