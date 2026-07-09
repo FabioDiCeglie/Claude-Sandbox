@@ -12,16 +12,14 @@ Claude runs in nested containers — not on your host.
 
 ```
 ┌────── Host Docker (Your Laptop) ──────┐
-│  ┌── claude-sandbox-shell-docker ────┐ │
+│  ┌── claude-sandbox-shell ───────────┐ │
 │  │                                   │ │
 │  │  ┌ claude-sandbox-cli ──────────┐ │ │
 │  │  │  Claude edits here           │ │ │
 │  │  └───────────┬──────────────────┘ │ │
 │  │              │ scripts            │ │
 │  │  ┌ claude-sandbox-app ──────────┐ │ │
-│  │  │  ┌ docker-tests · docker-app ┐│ │ │
-│  │  │  │  same container           ││ │ │
-│  │  │  └───────────────────────────┘│ │ │
+│  │  │  tests · server              │ │ │
 │  │  └──────────────────────────────┘ │ │
 │  └───────────────────────────────────┘ │
 └────────────────────────────────────────┘
@@ -29,18 +27,40 @@ Claude runs in nested containers — not on your host.
 
 Setup: [`DinD/README.md`](./DinD/README.md)
 
-| Problem | DinD |
-|---------|------|
-| Secret keys on host (`~/.aws`, home `.env`, npm tokens) | ✅ Solved |
-| SSH / prod access | ✅ Solved |
-| Slack / chat tokens outside workspace | ✅ Solved |
-| Active session hijack (host cookies, ssh-agent, keychain) | ✅ Solved |
-| CI/CD host tokens (`gh`, git, kubeconfig, Terraform) | ✅ Solved |
-| Host Docker abuse | ✅ Solved |
-| Unscoped filesystem (outside `/workspace`) | ✅ Solved |
-| Secrets inside `/workspace` (project `.env`) | ❌ Not solved |
-| CI/CD repo poisoning (bad workflows in the project) | ❌ Not solved |
-| Code poisoning (malicious hooks, `CLAUDE.md`) | ❌ Not solved |
-| Network exfiltration | ❌ Not solved |
-| VPN / internal network via host | ❌ Not solved |
-| `docker run --privileged` and dangerous containers | ❌ Not solved |
+### DinD + Proxy
+
+Same Docker-in-Docker isolation, plus a Squid egress-filter sitting between every container and the internet. Only allowlisted domains pass — everything else is blocked at the kernel level.
+
+```
+┌────── Host Docker (Your Laptop) ──────────────┐
+│  ┌── claude-sandbox-proxy-shell ─────────────┐ │
+│  │                                           │ │
+│  │  proxy-egress ── sandbox-proxy (Squid) ── internet
+│  │                        │                  │ │
+│  │  sandbox-net (internal, no direct web)    │ │
+│  │    ├── sandbox-proxy                      │ │
+│  │    └── claude-sandbox-cli                 │ │
+│  │          └── claude-sandbox-app           │ │
+│  └───────────────────────────────────────────┘ │
+└────────────────────────────────────────────────┘
+```
+
+Setup: [`DinD-Proxy/README.md`](./DinD-Proxy/README.md)
+
+## What each solution covers
+
+| Problem | DinD | DinD + Proxy |
+|---------|:----:|:------------:|
+| Secret keys on host (`~/.aws`, home `.env`, npm tokens) | ✅ | ✅ |
+| SSH / prod access | ✅ | ✅ |
+| Slack / chat tokens outside workspace | ✅ | ✅ |
+| Active session hijack (host cookies, ssh-agent, keychain) | ✅ | ✅ |
+| CI/CD host tokens (`gh`, git, kubeconfig, Terraform) | ✅ | ✅ |
+| Host Docker abuse | ✅ | ✅ |
+| Unscoped filesystem (outside `/workspace`) | ✅ | ✅ |
+| Network exfiltration | ❌ | ✅ |
+| VPN / internal network via host | ❌ | ✅ |
+| Secrets inside `/workspace` (project `.env`) | ⚠️ CLAUDE.md + `chmod 000` at startup | ⚠️ CLAUDE.md + `chmod 000` at startup |
+| CI/CD repo poisoning (bad workflows in the project) | ⚠️ Branch protection + required review | ⚠️ Branch protection + required review |
+| Code poisoning (malicious hooks, `CLAUDE.md`) | ⚠️ Branch protection + required review | ⚠️ Branch protection + required review |
+| `docker run --privileged` and dangerous containers | ❌ | ✅ Socket proxy (Docker API filter) |
