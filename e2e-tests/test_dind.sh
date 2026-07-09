@@ -49,6 +49,11 @@ until docker exec "${SHELL_NAME}" docker info >/dev/null 2>&1; do
 done
 echo "  inner daemon ready"
 
+# The inner daemon creates the socket as root:docker 660.
+# nobody (uid 65534) is not in the docker group, so we open it to all.
+# Safe here because this socket belongs to the isolated inner daemon only.
+docker exec "${SHELL_NAME}" chmod 666 /var/run/docker.sock
+
 # ── 2. Build CLI image ────────────────────────────────────────────────────────
 echo
 echo "▶ Building claude-sandbox-cli (this takes a minute)"
