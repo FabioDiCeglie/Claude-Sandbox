@@ -5,7 +5,7 @@ set -euo pipefail
 echo "Building app image..."
 docker build -q -t claude-sandbox-app:latest \
   -f /workspace/docker/Dockerfile \
-  /workspace >/dev/null 2>&1
+  /workspace
 echo "Build complete."
 
 docker run --rm claude-sandbox-app:latest uv run pytest

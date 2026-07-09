@@ -38,7 +38,8 @@ trap cleanup EXIT
 # ── 1. Start shell ────────────────────────────────────────────────────────────
 echo
 echo "▶ Starting ${SHELL_NAME}"
-docker compose -f "${COMPOSE_FILE}" --profile sandbox up -d shell
+docker compose -f "${COMPOSE_FILE}" --profile sandbox up -d shell --quiet-pull 2>/dev/null || \
+  docker compose -f "${COMPOSE_FILE}" --profile sandbox up -d shell
 
 echo "▶ Waiting for inner Docker daemon (up to ${MAX_WAIT_SECONDS}s)"
 deadline=$((SECONDS + MAX_WAIT_SECONDS))
@@ -50,11 +51,12 @@ echo "  inner daemon ready"
 
 # ── 2. Build CLI image ────────────────────────────────────────────────────────
 echo
-echo "▶ Building claude-sandbox-cli"
-docker exec "${SHELL_NAME}" docker build \
+echo "▶ Building claude-sandbox-cli (this takes a minute)"
+docker exec "${SHELL_NAME}" docker build -q \
   -t claude-sandbox-cli:latest \
   -f /workspace/docker/Dockerfile.claude-cli \
-  /workspace/docker
+  /workspace/docker >/dev/null
+echo "  done"
 
 # ── 3. ASSERT: daemon isolation ───────────────────────────────────────────────
 echo

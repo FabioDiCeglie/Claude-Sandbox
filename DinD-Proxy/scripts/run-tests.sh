@@ -7,7 +7,7 @@ PROXY_HOST="${HTTP_PROXY:-http://sandbox-proxy:3128}"
 echo "Building app image..."
 docker build -q -t claude-sandbox-app:latest \
   -f /workspace/docker/Dockerfile \
-  /workspace >/dev/null 2>&1
+  /workspace
 echo "Build complete."
 
 docker run --rm \
