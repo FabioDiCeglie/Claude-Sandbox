@@ -169,7 +169,7 @@ docker exec "${SHELL_NAME}" sh -c '
     -name ".env" -o -name ".env.*" -o -name "*.env" \
     -o -name "secrets.*" -o -name "credentials.*" \
   \) -print0 \
-  | xargs -0 chmod 000
+  | xargs -0 -r chmod 000
 '
 locked=$(docker exec "${SHELL_NAME}" sh -c '
   find /workspace -type f \( \
