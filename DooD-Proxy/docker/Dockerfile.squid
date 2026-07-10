@@ -1,0 +1,12 @@
+FROM alpine:3.20
+
+RUN apk add --no-cache squid
+
+COPY squid/squid.conf /etc/squid/squid.conf
+
+RUN mkdir -p /var/log/squid /var/spool/squid \
+    && chown -R squid:squid /var/log/squid /var/spool/squid
+
+EXPOSE 3128
+
+CMD ["squid", "-N", "-f", "/etc/squid/squid.conf"]
