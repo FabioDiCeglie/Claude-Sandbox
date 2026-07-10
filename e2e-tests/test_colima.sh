@@ -61,8 +61,7 @@ colima start "${PROFILE}" \
   --memory 4 \
   --disk 20 \
   --mount "${COLIMA_ROOT}:/workspace:w" \
-  --runtime docker \
-  --vm-type qemu
+  --runtime docker
 echo "  done"
 
 # ── Wait for SSH ──────────────────────────────────────────────────────────────
