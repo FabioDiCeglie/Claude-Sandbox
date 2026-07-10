@@ -1,24 +1,25 @@
 #!/usr/bin/env bash
 # E2E test for the Colima VM sandbox.
 #
-# In production, Claude runs natively inside a Colima VM and the VM's own
-# Docker daemon is used for app containers. This test exercises the Docker
-# layer that runs inside the VM — it does NOT start a Colima VM (that
-# requires macOS + Colima and is not feasible on ubuntu-latest CI).
+# Starts a real Colima VM with only the workspace mounted and verifies
+# VM-level isolation and functionality.
 #
-# What IS tested here (runnable on any Docker host):
-#   1. Build claude-sandbox-colima-app image
-#   2. ASSERT: /workspace is accessible inside the app container
-#   3. Lock .env files
-#   4. ASSERT: run-tests.sh exits 0 (build app image + pytest)
-#   5. Tear down (trap)
+# Requirements: macOS + colima (brew install colima docker-buildx)
 #
-# VM-level isolation (hypervisor boundary, colima start, SSH) must be
-# verified manually on a macOS host with Colima installed.
+# Steps:
+#   1. Start Colima VM "claude-sandbox-e2e" with workspace-only mount
+#   2. ASSERT: SSH into VM works
+#   3. ASSERT: /workspace is accessible inside VM
+#   4. ASSERT: host /Users is NOT accessible inside VM (no home-dir mount)
+#   5. ASSERT: VM has its own Docker daemon (host daemon unreachable)
+#   6. Provision tools inside VM (Node, uv)
+#   7. ASSERT: run-tests.sh exits 0 inside VM
+#   8. Tear down (trap)
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 COLIMA_ROOT="${REPO_ROOT}/Colima"
+PROFILE="claude-sandbox-e2e"
 
 PASS=0
 FAIL=0
@@ -30,57 +31,109 @@ fail() { echo "  ❌  FAIL — $*" >&2; FAIL=$((FAIL + 1)); }
 cleanup() {
   echo
   echo "▶ Tearing down"
-  leftover=$(docker ps -aq --filter ancestor=claude-sandbox-colima-app:latest 2>/dev/null || true)
-  [[ -n "${leftover}" ]] && echo "${leftover}" | xargs docker rm -f 2>/dev/null || true
+  colima delete "${PROFILE}" --force 2>/dev/null || true
   echo
   echo "Results: ${PASS} passed, ${FAIL} failed"
   [[ "${FAIL}" -eq 0 ]] || exit 1
 }
 trap cleanup EXIT
 
-# ── 1. Build app image ────────────────────────────────────────────────────────
+# ── Preflight ─────────────────────────────────────────────────────────────────
 echo
-echo "▶ Building claude-sandbox-colima-app"
-docker build -q \
-  -t claude-sandbox-colima-app:latest \
-  -f "${COLIMA_ROOT}/docker/Dockerfile" \
-  "${COLIMA_ROOT}" >/dev/null
+echo "▶ Checking prerequisites"
+if ! command -v colima &>/dev/null; then
+  echo "  ❌  colima not found — install with: brew install colima" >&2
+  exit 1
+fi
+echo "  colima $(colima version 2>/dev/null | head -1)"
+
+# ── 1. Start VM ───────────────────────────────────────────────────────────────
+echo
+echo "▶ Starting Colima VM \"${PROFILE}\" (workspace-only mount)"
+colima start "${PROFILE}" \
+  --cpu 2 \
+  --memory 4 \
+  --disk 20 \
+  --mount "${COLIMA_ROOT}:/workspace:w" \
+  --runtime docker
 echo "  done"
 
-# ── 2. ASSERT: /workspace is accessible ──────────────────────────────────────
+# ── Wait for SSH ──────────────────────────────────────────────────────────────
 echo
-echo "━━ Test: workspace is accessible inside app container ━━"
-workspace_ok=$(docker run --rm \
-  -v "${COLIMA_ROOT}:/workspace" \
-  -w /workspace \
-  claude-sandbox-colima-app:latest \
-  sh -c 'test -d /workspace && echo ok' 2>/dev/null || echo "")
-if [[ "${workspace_ok}" == "ok" ]]; then
-  pass "/workspace is accessible inside app container"
+echo "▶ Waiting for VM SSH (up to 90s)"
+for _i in $(seq 1 45); do
+  if colima ssh -p "${PROFILE}" -- /bin/echo ok >/dev/null 2>&1; then
+    break
+  fi
+  sleep 2
+done
+
+# ── 2. ASSERT: SSH works ──────────────────────────────────────────────────────
+echo
+echo "━━ Test: SSH into VM ━━"
+if colima ssh -p "${PROFILE}" -- /bin/echo ok >/dev/null 2>&1; then
+  pass "SSH into VM works"
 else
-  fail "/workspace is not accessible inside app container"
+  fail "SSH into VM failed"
 fi
 
-# ── 3. Lock .env files ────────────────────────────────────────────────────────
+# ── 3. ASSERT: /workspace accessible ─────────────────────────────────────────
 echo
-echo "▶ Locking .env files"
-find "${COLIMA_ROOT}" -type f \( \
-  -name ".env" -o -name ".env.*" -o -name "*.env" \
-  -o -name "secrets.*" -o -name "credentials.*" \
-\) -print0 | xargs -0 -r chmod 000 2>/dev/null || true
-locked=$(find "${COLIMA_ROOT}" -type f \( \
-  -name ".env" -o -name ".env.*" -o -name "*.env" \
-  -o -name "secrets.*" -o -name "credentials.*" \
-\) | wc -l | tr -d " ")
-echo "  ${locked} file(s) locked"
-
-# ── 4. ASSERT: tests pass inside app container ───────────────────────────────
-echo
-echo "━━ Test: pytest passes inside app container ━━"
-if docker run --rm \
-  claude-sandbox-colima-app:latest \
-  uv run pytest; then
-  pass "pytest exited 0"
+echo "━━ Test: /workspace is accessible inside VM ━━"
+workspace_ok=$(colima ssh -p "${PROFILE}" -- \
+  bash --noprofile --norc -c 'test -d /workspace && echo ok' 2>/dev/null || echo "")
+if [[ "${workspace_ok}" == "ok" ]]; then
+  pass "/workspace is accessible inside VM"
 else
-  fail "pytest exited non-zero"
+  fail "/workspace is NOT accessible inside VM"
+fi
+
+# ── 4. ASSERT: host /Users NOT accessible ────────────────────────────────────
+echo
+echo "━━ Test: host /Users is not mounted in VM ━━"
+users_visible=$(colima ssh -p "${PROFILE}" -- \
+  bash --noprofile --norc -c 'ls /Users 2>/dev/null | wc -l | tr -d " "' 2>/dev/null || echo "0")
+if [[ "${users_visible}" == "0" ]]; then
+  pass "Host /Users is not accessible inside VM"
+else
+  fail "Host /Users IS accessible inside VM — isolation broken"
+fi
+
+# ── 5. ASSERT: VM has its own Docker daemon ───────────────────────────────────
+echo
+echo "━━ Test: VM has its own Docker daemon ━━"
+docker_ok=$(colima ssh -p "${PROFILE}" -- \
+  bash --noprofile --norc -c 'docker info >/dev/null 2>&1 && echo ok || echo fail' 2>/dev/null || echo "fail")
+if [[ "${docker_ok}" == "ok" ]]; then
+  pass "VM Docker daemon is running"
+else
+  fail "VM Docker daemon is not available"
+fi
+
+# ── 6. Provision tools in VM ──────────────────────────────────────────────────
+echo
+echo "▶ Provisioning tools inside VM"
+colima ssh -p "${PROFILE}" -- bash --noprofile --norc -s 2>/dev/null << 'PROVISION'
+set -euo pipefail
+command -v node >/dev/null 2>&1 || {
+  echo "  Installing Node.js 20..."
+  curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash - >/dev/null 2>&1
+  sudo apt-get install -y --no-install-recommends nodejs >/dev/null 2>&1
+  echo "  Node.js $(node --version) installed"
+}
+command -v uv >/dev/null 2>&1 || {
+  echo "  Installing uv..."
+  curl -LsSf https://astral.sh/uv/install.sh | sh >/dev/null 2>&1
+  echo "  uv installed"
+}
+PROVISION
+
+# ── 7. ASSERT: run-tests.sh passes inside VM ─────────────────────────────────
+echo
+echo "━━ Test: run-tests.sh inside VM ━━"
+if colima ssh -p "${PROFILE}" -- bash --noprofile --norc -c \
+    'export PATH="$HOME/.cargo/bin:$HOME/.local/bin:$PATH" && cd /workspace && ./scripts/run-tests.sh' 2>&1; then
+  pass "run-tests.sh exited 0 inside VM"
+else
+  fail "run-tests.sh exited non-zero inside VM"
 fi
