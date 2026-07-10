@@ -48,7 +48,7 @@ Then run `claude` when ready.
 ./scripts/sandbox-stop.sh
 ```
 
-**Manual test flow** (inside cli, without Claude):
+**Manual test flow** (inside CLI, without Claude):
 
 ```bash
 ./scripts/run-tests.sh
