@@ -108,22 +108,45 @@ Same DooD approach — no privileged shell, host daemon — plus Squid egress-fi
 
 Setup: [`DooD-Proxy/README.md`](./DooD-Proxy/README.md)
 
+### Colima VM
+
+Claude runs directly inside a dedicated **Colima Linux VM**. Isolation is enforced by the VM hypervisor — Claude shares no kernel with the host, the host Docker daemon is completely unreachable, and only `/workspace` is mounted from the host. No Docker required on the host.
+
+```
+┌────── Your Mac (host) ────────────────┐
+│                                       │
+│  └── Colima VM "claude-sandbox"       │
+│        (QEMU / Apple VZ hypervisor)   │
+│        ├── /workspace only mounted    │
+│        ├── Claude CLI runs here       │
+│        └── VM Docker daemon           │
+│              └── claude-sandbox-      │
+│                  colima-app           │
+│                  (tests · server)     │
+│                                       │
+└────────────────────────────────────── ┘
+```
+
+Setup: [`Colima/README.md`](./Colima/README.md)
+
 ## What each solution covers
 
-| Problem | DinD | DinD + Proxy | DooD | DooD + Proxy |
-|---------|:----:|:------------:|:----:|:------------:|
-| Secret keys on host (`~/.aws`, home `.env`, npm tokens) | ✅ | ✅ | ✅ | ✅ |
-| SSH / prod access | ✅ | ✅ | ✅ | ✅ |
-| Slack / chat tokens outside workspace | ✅ | ✅ | ✅ | ✅ |
-| Active session hijack (host cookies, ssh-agent, keychain) | ✅ | ✅ | ✅ | ✅ |
-| CI/CD host tokens (`gh`, git, kubeconfig, Terraform) | ✅ | ✅ | ✅ | ✅ |
-| Host Docker abuse | ✅ | ✅ | ❌ Full host socket | ⚠️ Socket proxy |
-| Unscoped filesystem (outside `/workspace`) | ✅ | ✅ | ✅ | ✅ |
-| Network exfiltration | ❌ | ✅ | ❌ | ✅ |
-| VPN / internal network via host | ❌ | ✅ | ❌ | ✅ |
-| Daemon isolation (separate from host) | ✅ | ✅ | ❌ Shares host daemon | ❌ Shares host daemon |
-| `docker run --privileged` and dangerous containers | ❌ | ✅ Socket proxy | ❌ | ✅ Socket proxy |
-| Requires `--privileged` host container | ⚠️ Yes | ⚠️ Yes | ✅ No | ✅ No |
-| Secrets inside `/workspace` (project `.env`) | ⚠️ CLAUDE.md + `chmod 000` | ⚠️ CLAUDE.md + `chmod 000` | ⚠️ CLAUDE.md + `chmod 000` | ⚠️ CLAUDE.md + `chmod 000` |
-| CI/CD repo poisoning (bad workflows in the project) | ⚠️ Branch protection | ⚠️ Branch protection | ⚠️ Branch protection | ⚠️ Branch protection |
-| Code poisoning (malicious hooks, `CLAUDE.md`) | ⚠️ Branch protection | ⚠️ Branch protection | ⚠️ Branch protection | ⚠️ Branch protection |
+| Problem | DinD | DinD + Proxy | DooD | DooD + Proxy | Colima VM |
+|---------|:----:|:------------:|:----:|:------------:|:---------:|
+| Secret keys on host (`~/.aws`, home `.env`, npm tokens) | ✅ | ✅ | ✅ | ✅ | ✅ |
+| SSH / prod access | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Slack / chat tokens outside workspace | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Active session hijack (host cookies, ssh-agent, keychain) | ✅ | ✅ | ✅ | ✅ | ✅ |
+| CI/CD host tokens (`gh`, git, kubeconfig, Terraform) | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Host Docker abuse | ✅ | ✅ | ❌ Full host socket | ⚠️ Socket proxy | ✅ Own VM daemon |
+| Unscoped filesystem (outside `/workspace`) | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Network exfiltration | ❌ | ✅ | ❌ | ✅ | ❌ |
+| VPN / internal network via host | ❌ | ✅ | ❌ | ✅ | ❌ |
+| Daemon isolation (separate from host) | ✅ | ✅ | ❌ Shares host daemon | ❌ Shares host daemon | ✅ Own VM daemon |
+| Kernel isolation (separate kernel) | ❌ Shared | ❌ Shared | ❌ Shared | ❌ Shared | ✅ Own kernel |
+| `docker run --privileged` and dangerous containers | ❌ | ✅ Socket proxy | ❌ | ✅ Socket proxy | ⚠️ VM-scoped only |
+| Requires `--privileged` host container | ⚠️ Yes | ⚠️ Yes | ✅ No | ✅ No | ✅ No |
+| Requires Docker on host | ✅ Yes | ✅ Yes | ✅ Yes | ✅ Yes | ✅ No |
+| Secrets inside `/workspace` (project `.env`) | ⚠️ CLAUDE.md + `chmod 000` | ⚠️ CLAUDE.md + `chmod 000` | ⚠️ CLAUDE.md + `chmod 000` | ⚠️ CLAUDE.md + `chmod 000` | ⚠️ CLAUDE.md + `chmod 000` |
+| CI/CD repo poisoning (bad workflows in the project) | ⚠️ Branch protection | ⚠️ Branch protection | ⚠️ Branch protection | ⚠️ Branch protection | ⚠️ Branch protection |
+| Code poisoning (malicious hooks, `CLAUDE.md`) | ⚠️ Branch protection | ⚠️ Branch protection | ⚠️ Branch protection | ⚠️ Branch protection | ⚠️ Branch protection |
