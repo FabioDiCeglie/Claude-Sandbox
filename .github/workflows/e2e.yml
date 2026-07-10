@@ -86,7 +86,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Install Colima
-        run: brew install colima docker docker-buildx
+        run: brew install colima docker docker-buildx qemu
 
       - name: Make e2e scripts executable
         run: chmod +x e2e-tests/*.sh
