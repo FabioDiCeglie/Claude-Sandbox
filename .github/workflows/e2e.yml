@@ -43,6 +43,22 @@ jobs:
       - name: Run DinD-Proxy e2e tests
         run: e2e-tests/test_dind_proxy.sh
 
+  # ── DooD + Proxy sandbox ──────────────────────────────────────────────────────
+  dood-proxy-e2e:
+    name: DooD-Proxy
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Make e2e scripts executable
+        run: chmod +x e2e-tests/*.sh
+
+      - name: Run DooD-Proxy e2e tests
+        run: e2e-tests/test_dood_proxy.sh
+
   # ── DooD sandbox ──────────────────────────────────────────────────────────────
   dood-e2e:
     name: DooD
