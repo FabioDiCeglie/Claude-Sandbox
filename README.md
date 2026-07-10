@@ -145,7 +145,6 @@ Setup: [`Colima/README.md`](./Colima/README.md)
 | Daemon isolation (separate from host) | ✅ | ✅ | ❌ Shares host daemon | ❌ Shares host daemon | ✅ Own VM daemon |
 | Kernel isolation (separate kernel) | ❌ Shared | ❌ Shared | ❌ Shared | ❌ Shared | ✅ Own kernel |
 | `docker run --privileged` and dangerous containers | ❌ | ✅ Socket proxy | ❌ | ✅ Socket proxy | ⚠️ VM-scoped only |
-| Requires `--privileged` host container | ⚠️ Yes | ⚠️ Yes | ✅ No | ✅ No | ✅ No |
 | Requires Docker on host | ✅ Yes | ✅ Yes | ✅ Yes | ✅ Yes | ✅ No |
 | Secrets inside `/workspace` (project `.env`) | ⚠️ CLAUDE.md + `chmod 000` | ⚠️ CLAUDE.md + `chmod 000` | ⚠️ CLAUDE.md + `chmod 000` | ⚠️ CLAUDE.md + `chmod 000` | ⚠️ CLAUDE.md + `chmod 000` |
 | CI/CD repo poisoning (bad workflows in the project) | ⚠️ Branch protection | ⚠️ Branch protection | ⚠️ Branch protection | ⚠️ Branch protection | ⚠️ Branch protection |
