@@ -34,7 +34,15 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# ── 1. Build CLI image ─────────────────────────────────────────────────────────
+# ── 1. Open Docker socket for nobody ─────────────────────────────────────────
+echo
+echo "▶ Opening Docker socket for nobody"
+docker run --rm \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  alpine chmod 666 /var/run/docker.sock
+echo "  done"
+
+# ── 2. Build CLI image ─────────────────────────────────────────────────────────
 echo
 echo "▶ Building claude-sandbox-dood-cli (this takes a minute)"
 docker build -q \

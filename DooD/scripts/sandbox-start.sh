@@ -18,6 +18,15 @@ echo
 echo "🚀  Start DooD sandbox"
 echo
 
+echo "▶ Opening Docker socket for nobody"
+# nobody (uid 65534) can't access the socket by default.
+# Run a temporary root container to chmod it — mirrors DinD's approach.
+docker run --rm \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  alpine chmod 666 /var/run/docker.sock
+echo "  ✅  socket accessible"
+
+echo
 echo "▶ Building claude-sandbox-dood-cli"
 docker build -q \
   -t claude-sandbox-dood-cli:latest \
