@@ -46,16 +46,10 @@ On first start the VM is created and tools are installed (~2–5 min). Subsequen
 
 Then run `claude` when ready.
 
-**Stop** (keeps VM disk — tools stay installed):
+**Stop** — deletes the VM entirely (next start re-provisions from scratch):
 
 ```bash
 ./scripts/sandbox-stop.sh
-```
-
-**Stop + wipe** (full reset, next start re-provisions everything):
-
-```bash
-./scripts/sandbox-stop.sh --delete
 ```
 
 **Manual test flow** (inside VM, without Claude):
