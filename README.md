@@ -47,20 +47,43 @@ Same Docker-in-Docker isolation, plus a Squid egress-filter sitting between ever
 
 Setup: [`DinD-Proxy/README.md`](./DinD-Proxy/README.md)
 
+### DooD (Docker-outside-of-Docker)
+
+Same idea as DinD — Claude runs in an isolated CLI container — but the CLI uses the **host Docker daemon** directly instead of a nested one. No privileged shell container required.
+
+```
+┌────── Host Docker (Your Laptop) ──────┐
+│                                       │
+│  ┌── claude-sandbox-dood-cli ───────┐ │
+│  │  Claude edits here               │ │
+│  └───────────┬───────────────────── ┘ │
+│              │ scripts                │
+│  ┌── claude-sandbox-dood-app ───────┐ │
+│  │  tests · server                  │ │
+│  └──────────────────────────────────┘ │
+│                                       │
+│  /var/run/docker.sock (host daemon)   │
+└───────────────────────────────────────┘
+```
+
+Setup: [`DooD/README.md`](./DooD/README.md)
+
 ## What each solution covers
 
-| Problem | DinD | DinD + Proxy |
-|---------|:----:|:------------:|
-| Secret keys on host (`~/.aws`, home `.env`, npm tokens) | ✅ | ✅ |
-| SSH / prod access | ✅ | ✅ |
-| Slack / chat tokens outside workspace | ✅ | ✅ |
-| Active session hijack (host cookies, ssh-agent, keychain) | ✅ | ✅ |
-| CI/CD host tokens (`gh`, git, kubeconfig, Terraform) | ✅ | ✅ |
-| Host Docker abuse | ✅ | ✅ |
-| Unscoped filesystem (outside `/workspace`) | ✅ | ✅ |
-| Network exfiltration | ❌ | ✅ |
-| VPN / internal network via host | ❌ | ✅ |
-| Secrets inside `/workspace` (project `.env`) | ⚠️ CLAUDE.md + `chmod 000` at startup | ⚠️ CLAUDE.md + `chmod 000` at startup |
-| CI/CD repo poisoning (bad workflows in the project) | ⚠️ Branch protection + required review | ⚠️ Branch protection + required review |
-| Code poisoning (malicious hooks, `CLAUDE.md`) | ⚠️ Branch protection + required review | ⚠️ Branch protection + required review |
-| `docker run --privileged` and dangerous containers | ❌ | ✅ Socket proxy (Docker API filter) |
+| Problem | DinD | DinD + Proxy | DooD |
+|---------|:----:|:------------:|:----:|
+| Secret keys on host (`~/.aws`, home `.env`, npm tokens) | ✅ | ✅ | ✅ |
+| SSH / prod access | ✅ | ✅ | ✅ |
+| Slack / chat tokens outside workspace | ✅ | ✅ | ✅ |
+| Active session hijack (host cookies, ssh-agent, keychain) | ✅ | ✅ | ✅ |
+| CI/CD host tokens (`gh`, git, kubeconfig, Terraform) | ✅ | ✅ | ✅ |
+| Host Docker abuse | ✅ | ✅ | ❌ Full host socket |
+| Unscoped filesystem (outside `/workspace`) | ✅ | ✅ | ✅ |
+| Network exfiltration | ❌ | ✅ | ❌ |
+| VPN / internal network via host | ❌ | ✅ | ❌ |
+| Daemon isolation (separate from host) | ✅ | ✅ | ❌ Shares host daemon |
+| `docker run --privileged` and dangerous containers | ❌ | ✅ Socket proxy | ❌ |
+| Requires `--privileged` host container | ⚠️ Yes | ⚠️ Yes | ✅ No |
+| Secrets inside `/workspace` (project `.env`) | ⚠️ CLAUDE.md + `chmod 000` | ⚠️ CLAUDE.md + `chmod 000` | ⚠️ CLAUDE.md + `chmod 000` |
+| CI/CD repo poisoning (bad workflows in the project) | ⚠️ Branch protection | ⚠️ Branch protection | ⚠️ Branch protection |
+| Code poisoning (malicious hooks, `CLAUDE.md`) | ⚠️ Branch protection | ⚠️ Branch protection | ⚠️ Branch protection |
