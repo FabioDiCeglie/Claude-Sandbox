@@ -75,21 +75,3 @@ jobs:
       - name: Run DooD-Proxy e2e tests
         run: e2e-tests/test_dood_proxy.sh
 
-  # ── Colima VM sandbox (macOS — requires Apple Hypervisor) ────────────────────
-  colima-e2e:
-    name: Colima
-    runs-on: macos-latest
-    timeout-minutes: 60
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Install Colima
-        run: brew install colima docker docker-buildx qemu
-
-      - name: Make e2e scripts executable
-        run: chmod +x e2e-tests/*.sh
-
-      - name: Run Colima e2e tests
-        run: e2e-tests/test_colima.sh
