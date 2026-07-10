@@ -13,7 +13,7 @@ concurrency:
 jobs:
   # ── DinD sandbox ─────────────────────────────────────────────────────────────
   dind-e2e:
-    name: DinD — isolation check + tests
+    name: DinD
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
@@ -29,7 +29,7 @@ jobs:
 
   # ── DinD + Proxy sandbox ──────────────────────────────────────────────────────
   dind-proxy-e2e:
-    name: DinD-Proxy — isolation check + proxy + tests
+    name: DinD-Proxy
     runs-on: ubuntu-latest
     timeout-minutes: 45
 
@@ -45,7 +45,7 @@ jobs:
 
   # ── DooD sandbox ──────────────────────────────────────────────────────────────
   dood-e2e:
-    name: DooD — workspace isolation + tests
+    name: DooD
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
