@@ -147,29 +147,32 @@ echo "  Configuring Squid..."
 sudo cp /workspace/squid/squid.conf /etc/squid/squid.conf
 sudo chown root:root /etc/squid/squid.conf
 
-# Ensure log directories exist with correct permissions
+# Validate config before starting (catches parse errors early)
+if ! sudo squid -k check -f /etc/squid/squid.conf 2>/dev/null; then
+  echo "  ❌  squid.conf parse error:" >&2
+  sudo squid -k check -f /etc/squid/squid.conf || true
+  exit 1
+fi
+
 sudo mkdir -p /var/log/squid /var/spool/squid
 sudo chown -R proxy:proxy /var/log/squid /var/spool/squid 2>/dev/null || true
 
 # Initialise Squid cache dirs (idempotent)
 sudo squid -z -f /etc/squid/squid.conf 2>/dev/null || true
 
-# Start or restart Squid
-if systemctl is-active --quiet squid 2>/dev/null; then
-  sudo systemctl restart squid
-else
-  sudo systemctl enable squid 2>/dev/null || true
-  sudo systemctl start  squid 2>/dev/null || sudo service squid start 2>/dev/null || true
-fi
+# Stop any running Squid, then start fresh with our config
+sudo systemctl stop squid 2>/dev/null || sudo service squid stop 2>/dev/null || true
+sleep 1
+sudo systemctl start squid 2>/dev/null || sudo service squid start 2>/dev/null || true
 
-# Wait for Squid to accept connections (up to 15s)
+# Wait for Squid to accept connections (up to 30s)
 squid_ready=false
-for _i in \$(seq 1 15); do
+for _i in \$(seq 1 30); do
   nc -z 127.0.0.1 ${SQUID_PORT} >/dev/null 2>&1 && { squid_ready=true; break; }
   sleep 1
 done
 if [[ "\${squid_ready}" != "true" ]]; then
-  echo "  ❌  Squid did not start within 15s" >&2
+  echo "  ❌  Squid did not start within 30s:" >&2
   sudo journalctl -u squid -n 20 2>/dev/null || sudo tail -20 /var/log/squid/cache.log 2>/dev/null || true
   exit 1
 fi
@@ -198,6 +201,14 @@ for _i in \$(seq 1 20); do
 done
 docker info >/dev/null 2>&1 && echo "  ✅  Docker daemon proxy configured" \
   || { echo "  ❌  Docker daemon did not restart" >&2; exit 1; }
+
+# Pre-pull the app base image while internet is still unrestricted.
+# This guarantees the layer is cached even if the daemon→proxy handoff
+# has a timing edge on first boot; subsequent builds use Docker's cache.
+echo "  Pre-pulling python:3.11-slim..."
+docker pull python:3.11-slim >/dev/null 2>&1 \
+  && echo "  ✅  python:3.11-slim cached" \
+  || echo "  ⚠️   pre-pull failed — first docker build will retry via proxy"
 
 # ── e) Apply iptables rules — kernel-level egress enforcement ─────────────────
 #
