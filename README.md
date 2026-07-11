@@ -113,39 +113,70 @@ Setup: [`DooD-Proxy/README.md`](./DooD-Proxy/README.md)
 Claude runs directly inside a dedicated **Colima Linux VM**. Isolation is enforced by the VM hypervisor — Claude shares no kernel with the host, the host Docker daemon is completely unreachable, and only `/workspace` is mounted from the host. No Docker required on the host.
 
 ```
-┌────── Your Mac (host) ────────────────┐
-│                                       │
-│  └── Colima VM "claude-sandbox"       │
-│        (QEMU / Apple VZ hypervisor)   │
-│        ├── /workspace only mounted    │
-│        ├── Claude CLI runs here       │
-│        └── VM Docker daemon           │
-│              └── claude-sandbox-      │
-│                  colima-app           │
-│                  (tests · server)     │
-│                                       │
-└────────────────────────────────────── ┘
+┌────── Your Mac (host) ──────────────────────────────────────────────────┐
+│                                                                          │
+│  └── Colima VM  (QEMU / Apple VZ hypervisor)                            │
+│        │                                                                 │
+│        │  /workspace only — no ~/.aws, ~/.ssh, host home dir            │
+│        │                                                                 │
+│        │  ┌── Claude CLI ──────────────────────────────────────────┐    │
+│        │  │  internet-accessible (no egress filter)                │    │
+│        │  └──────────────────────────────────────────────────────── ┘    │
+│        │                           │ scripts                             │
+│        │  ┌── VM Docker daemon ───────────────────────────────────┐    │
+│        │  │  claude-sandbox-colima-app  (tests · server)          │    │
+│        │  └──────────────────────────────────────────────────────── ┘    │
+│                                                                          │
+└──────────────────────────────────────────────────────────────────────────┘
 ```
 
 Setup: [`Colima/README.md`](./Colima/README.md)
 
+### Colima VM + Proxy
+
+Same VM-level isolation, plus **Squid egress filter running inside the VM** and `iptables` kernel rules that block direct port 80/443 — making Squid the only path to the internet. Docker image pulls inside the VM are also routed through Squid.
+
+```
+┌────── Your Mac (host) ──────────────────────────────────────────────────┐
+│                                                                          │
+│  └── Colima VM  (QEMU / Apple VZ hypervisor)                            │
+│        │                                                                 │
+│        │  /workspace only — no ~/.aws, ~/.ssh, host home dir            │
+│        │                                                                 │
+│        │  ┌── Claude CLI ──────────────────────────────────────────┐    │
+│        │  │  HTTP_PROXY / HTTPS_PROXY → Squid                      │    │
+│        │  │  Direct port 80/443 blocked by iptables                │    │
+│        │  └──────────────────────────────────────────────────────── ┘    │
+│        │                           │ scripts                             │
+│        │  ┌── VM Docker daemon ───────────────────────────────────┐    │
+│        │  │  claude-sandbox-colima-proxy-app  (tests · server)    │    │
+│        │  └──────────────────────────────────────────────────────── ┘    │
+│        │                                                                 │
+│        └── Squid (port 3128) ──────────────────────── internet          │
+│               allowlisted domains only                                   │
+│                                                                          │
+└──────────────────────────────────────────────────────────────────────────┘
+```
+
+Setup: [`Colima-Proxy/README.md`](./Colima-Proxy/README.md)
+
 ## What each solution covers
 
-| Problem | DinD | DinD + Proxy | DooD | DooD + Proxy | Colima VM |
-|---------|:----:|:------------:|:----:|:------------:|:---------:|
-| Secret keys on host (`~/.aws`, home `.env`, npm tokens) | ✅ | ✅ | ✅ | ✅ | ✅ |
-| SSH / prod access | ✅ | ✅ | ✅ | ✅ | ✅ |
-| Slack / chat tokens outside workspace | ✅ | ✅ | ✅ | ✅ | ✅ |
-| Active session hijack (host cookies, ssh-agent, keychain) | ✅ | ✅ | ✅ | ✅ | ✅ |
-| CI/CD host tokens (`gh`, git, kubeconfig, Terraform) | ✅ | ✅ | ✅ | ✅ | ✅ |
-| Host Docker abuse | ✅ | ✅ | ❌ Full host socket | ⚠️ Socket proxy | ✅ Own VM daemon |
-| Unscoped filesystem (outside `/workspace`) | ✅ | ✅ | ✅ | ✅ | ✅ |
-| Network exfiltration | ❌ | ✅ | ❌ | ✅ | ❌ |
-| VPN / internal network via host | ❌ | ✅ | ❌ | ✅ | ❌ |
-| Daemon isolation (separate from host) | ✅ | ✅ | ❌ Shares host daemon | ❌ Shares host daemon | ✅ Own VM daemon |
-| Kernel isolation (separate kernel) | ❌ Shared | ❌ Shared | ❌ Shared | ❌ Shared | ✅ Own kernel |
-| `docker run --privileged` and dangerous containers | ❌ | ✅ Socket proxy | ❌ | ✅ Socket proxy | ⚠️ VM-scoped only |
-| Requires Docker on host | ✅ Yes | ✅ Yes | ✅ Yes | ✅ Yes | ✅ No |
-| Secrets inside `/workspace` (project `.env`) | ⚠️ CLAUDE.md + `chmod 000` | ⚠️ CLAUDE.md + `chmod 000` | ⚠️ CLAUDE.md + `chmod 000` | ⚠️ CLAUDE.md + `chmod 000` | ⚠️ CLAUDE.md + `chmod 000` |
-| CI/CD repo poisoning (bad workflows in the project) | ⚠️ Branch protection | ⚠️ Branch protection | ⚠️ Branch protection | ⚠️ Branch protection | ⚠️ Branch protection |
-| Code poisoning (malicious hooks, `CLAUDE.md`) | ⚠️ Branch protection | ⚠️ Branch protection | ⚠️ Branch protection | ⚠️ Branch protection | ⚠️ Branch protection |
+| Problem | DinD | DinD + Proxy | DooD | DooD + Proxy | Colima VM | Colima + Proxy |
+|---------|:----:|:------------:|:----:|:------------:|:---------:|:--------------:|
+| Secret keys on host (`~/.aws`, home `.env`, npm tokens) | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| SSH / prod access | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Slack / chat tokens outside workspace | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Active session hijack (host cookies, ssh-agent, keychain) | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| CI/CD host tokens (`gh`, git, kubeconfig, Terraform) | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Host Docker abuse | ✅ | ✅ | ❌ Full host socket | ⚠️ Socket proxy | ✅ Own VM daemon | ✅ Own VM daemon |
+| Unscoped filesystem (outside `/workspace`) | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Network exfiltration | ❌ | ✅ | ❌ | ✅ | ❌ | ✅ |
+| VPN / internal network via host | ❌ | ✅ | ❌ | ✅ | ❌ | ✅ |
+| Daemon isolation (separate from host) | ✅ | ✅ | ❌ Shares host daemon | ❌ Shares host daemon | ✅ Own VM daemon | ✅ Own VM daemon |
+| Kernel isolation (separate kernel) | ❌ Shared | ❌ Shared | ❌ Shared | ❌ Shared | ✅ Own kernel | ✅ Own kernel |
+| `docker run --privileged` and dangerous containers | ❌ | ✅ Socket proxy | ❌ | ✅ Socket proxy | ⚠️ VM-scoped only | ⚠️ VM-scoped only |
+| Requires Docker on host | ✅ Yes | ✅ Yes | ✅ Yes | ✅ Yes | ✅ No | ✅ No |
+| Secrets inside `/workspace` (project `.env`) | ⚠️ CLAUDE.md + `chmod 000` | ⚠️ CLAUDE.md + `chmod 000` | ⚠️ CLAUDE.md + `chmod 000` | ⚠️ CLAUDE.md + `chmod 000` | ⚠️ CLAUDE.md + `chmod 000` | ⚠️ CLAUDE.md + `chmod 000` |
+| CI/CD repo poisoning (bad workflows in the project) | ⚠️ Branch protection | ⚠️ Branch protection | ⚠️ Branch protection | ⚠️ Branch protection | ⚠️ Branch protection | ⚠️ Branch protection |
+| Code poisoning (malicious hooks, `CLAUDE.md`) | ⚠️ Branch protection | ⚠️ Branch protection | ⚠️ Branch protection | ⚠️ Branch protection | ⚠️ Branch protection | ⚠️ Branch protection |
